@@ -13,4 +13,4 @@ data/processed/*
 !data/processed/.gitkeep
 
 #Avoid uploading personal credentials file
-.personal
+personal.md
