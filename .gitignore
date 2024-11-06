@@ -1,0 +1,9 @@
+# Ignore macOS files
+.DS_Store
+
+# Ignore virtual environment
+.venv/
+
+# Ignore files in data/raw and data/processed, but keep the folders
+data/raw/*
+data/processed/*
