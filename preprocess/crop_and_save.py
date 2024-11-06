@@ -1,6 +1,7 @@
 import cv2
 import glob
 import os
+import ast
 import argparse
 
 orientation_coord = {
@@ -31,19 +32,18 @@ def preprocess_pipeline(args):
         sprite = cv2.imread(spath, cv2.IMREAD_UNCHANGED)
         y_start, y_end, x_start, x_end = orientation_coord[args.orientation]
         sprite = sprite[y_start:y_end, x_start:x_end]
-        sprite = cv2.resize(sprite, args.output_shape, interpolation=cv2.INTER_AREA)
+        sprite = cv2.resize(
+            sprite, ast.literal_eval(args.output_shape), interpolation=cv2.INTER_AREA
+        )
         cv2.imwrite(save_path, sprite)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-path", type=str)
-    parser.add_argument("--orientation", type=str)
     parser.add_argument(
-        "--output-shape",
-        type=tuple,
-        default=(360, 400),
-        choices=["front", "left", "right", "back"],
+        "--orientation", type=str, choices=["front", "left", "right", "back"]
     )
+    parser.add_argument("--output-shape", type=str, default="(64, 64)")
 
     preprocess_pipeline(parser.parse_args())
