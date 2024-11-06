@@ -7,3 +7,7 @@
 # Ignore files in data/raw and data/processed, but keep the folders
 data/raw/*
 data/processed/*
+
+# Exclude .gitkeep to keep the folder structure in the repository
+!data/raw/.gitkeep
+!data/processed/.gitkeep
