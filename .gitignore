@@ -2,7 +2,7 @@
 .DS_Store
 
 # Ignore virtual environment
-.venv/
+venv/
 
 # Ignore files in data/raw and data/processed, but keep the folders
 data/raw/*
