@@ -9,24 +9,25 @@ class EncoderBlock(nn.Module):
         in_channels,
         out_channels,
         kernel_size,
-        first_block,
+        norm_block,
         stride=2,
         padding=1,
         bias=False,
     ):
-        if first_block:
+        super().__init__()
+        if norm_block:
             self.conv = nn.Sequential(
                 nn.Conv2d(
                     in_channels, out_channels, kernel_size, stride, padding, bias=bias
                 ),
-                nn.functional.leaky_relu(),
+                nn.InstanceNorm2d(out_channels),
+                nn.LeakyReLU(),
             )
         else:
             self.conv = nn.Sequential(
                 nn.Conv2d(
                     in_channels, out_channels, kernel_size, stride, padding, bias=bias
                 ),
-                nn.InstanceNorm2d(out_channels),
                 nn.LeakyReLU(),
             )
 
@@ -41,20 +42,20 @@ class DecoderBlock(nn.Module):
         out_channels,
         kernel_size,
         final_block,
+        dropout,
         stride=2,
         padding=1,
         bias=False,
     ):
+        super().__init__()
         if final_block:
             self.conv = nn.Sequential(
-                nn.ConvTranspose2d(
+                nn.Conv2d(
                     in_channels, out_channels, kernel_size, stride, padding, bias=bias
                 ),
-                nn.InstanceNorm2d(out_channels),
                 nn.Tanh(),
             )
-
-        else:
+        elif dropout:
             self.conv = nn.Sequential(
                 nn.ConvTranspose2d(
                     in_channels, out_channels, kernel_size, stride, padding, bias=bias
@@ -63,29 +64,41 @@ class DecoderBlock(nn.Module):
                 nn.Dropout(0.5),
                 nn.ReLU(),
             )
+        else:
+            self.conv = nn.Sequential(
+                nn.ConvTranspose2d(
+                    in_channels, out_channels, kernel_size, stride, padding, bias=bias
+                ),
+                nn.InstanceNorm2d(out_channels),
+                nn.ReLU(),
+            )
 
-    def forward(self, x, skip_connection_x):
-        x = torch.cat([x, skip_connection_x], axis=1)
+    def forward(self, x, skip_connection_x=None):
+        if skip_connection_x is not None:
+            return torch.cat([self.conv(x), skip_connection_x], axis=1)
         return self.conv(x)
 
 
-class UNET(nn.Module):
+class Generator(nn.Module):
 
     def __init__(self, in_channels, kernel_size):
-        self.enc1 = EncoderBlock(in_channels, 64, kernel_size, True, 2, 1, bias=False)
-        self.enc2 = EncoderBlock(64, 128, kernel_size, False, 2, 1, bias=False)
-        self.enc3 = EncoderBlock(128, 256, kernel_size, False, 2, 1, bias=False)
-        self.enc4 = EncoderBlock(256, 512, kernel_size, False, 2, 1, bias=False)
-        self.enc5 = EncoderBlock(512, 512, kernel_size, False, 2, 1, bias=False)
+        super().__init__()
+        self.enc1 = EncoderBlock(in_channels, 64, kernel_size, False, 2, 1, bias=False)
+        self.enc2 = EncoderBlock(64, 128, kernel_size, True, 2, 1, bias=False)
+        self.enc3 = EncoderBlock(128, 256, kernel_size, True, 2, 1, bias=False)
+        self.enc4 = EncoderBlock(256, 512, kernel_size, True, 2, 1, bias=False)
+        self.enc5 = EncoderBlock(512, 512, kernel_size, True, 2, 1, bias=False)
         self.enc6 = EncoderBlock(512, 512, kernel_size, False, 2, 1, bias=False)
 
-        self.dec1 = DecoderBlock(1024, 512, kernel_size, False, 2, 1, bias=False)
-        self.dec2 = DecoderBlock(1024, 256, kernel_size, False, 2, 1, bias=False)
-        self.dec3 = DecoderBlock(512, 128, kernel_size, False, 2, 1, bias=False)
+        self.dec1 = DecoderBlock(512, 512, kernel_size, False, True, 2, 1, bias=False)
+        self.dec2 = DecoderBlock(1024, 512, kernel_size, False, True, 2, 1, bias=False)
+        self.dec3 = DecoderBlock(1024, 256, kernel_size, False, True, 2, 1, bias=False)
 
-        self.dec4 = DecoderBlock(256, 64, kernel_size, False, 2, 1, bias=False)
-        self.dec5 = DecoderBlock(128, 32, kernel_size, False, 2, 1, bias=False)
-        self.dec6 = DecoderBlock(36, in_channels, kernel_size, True, 2, 1, bias=False)
+        self.dec4 = DecoderBlock(512, 128, kernel_size, False, False, 2, 1, bias=False)
+        self.dec5 = DecoderBlock(256, 64, kernel_size, False, False, 2, 1, bias=False)
+        self.dec6 = DecoderBlock(128, 32, kernel_size, False, False, 2, 1, bias=False)
+
+        self.dec7 = DecoderBlock(36, in_channels, (3, 3), True, False, 1, 1, bias=False)
 
     def forward(self, x):
         x0 = self.enc1(x)
@@ -100,4 +113,5 @@ class UNET(nn.Module):
         x8 = self.dec3(x7, x2)
         x9 = self.dec4(x8, x1)
         x10 = self.dec5(x9, x0)
-        return self.dec6(x10, x)
+        self.x11 = self.dec6(x10, x)
+        return self.dec7(self.x11)
