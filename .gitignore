@@ -19,5 +19,12 @@ personal.md
 #Exclude traning logs
 train/tensorboard_logs
 
+#Exclude mlflow logs
+mlflow_startup_utils/
+
+#But keep the startup.sh file
+!mlflow_startup_utils/startup.sh
+
 #Avoid local models
 models/*
+
