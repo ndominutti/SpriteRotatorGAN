@@ -20,7 +20,7 @@ class GenLoss(nn.Module):
 
         # Combined loss
         combined_loss = adv_loss + self.lambda_reg * recon_loss
-        return combined_loss
+        return combined_loss, recon_loss
 
 
 class DiscLoss(nn.Module):
