@@ -13,6 +13,7 @@ from tensorboardX import SummaryWriter
 from torchmetrics.image.fid import FrechetInceptionDistance
 import socket
 import psutil
+import mlflow
 
 
 class CustomImageDataset(Dataset):
@@ -125,6 +126,7 @@ def eval(
     device,
     writer,
     gstep,
+    to_mlflow=False,
 ):
     gen_mean_loss = 0
     disc_mean_loss = 0
@@ -154,10 +156,19 @@ def eval(
     l1_mean_loss = l1_mean_loss / (cur_step + 1)
     fid_metric = fid.compute().item()
 
-    writer.add_scalar("eval_GenAdv_loss", gen_mean_loss, global_step=gstep)
-    writer.add_scalar("eval_GenL1_loss", l1_mean_loss, global_step=gstep)
-    writer.add_scalar("eval_Disc_loss", disc_mean_loss, global_step=gstep)
-    writer.add_scalar("eval_GenFID_loss", fid_metric, global_step=gstep)
+    if to_mlflow:
+        metrics = {
+            "eval_GenAdv_loss": gen_mean_loss,
+            "eval_GenL1_loss": l1_mean_loss,
+            "eval_Disc_loss": disc_mean_loss,
+            "eval_GenFID_loss": fid_metric,
+        }
+        mlflow.log_metrics(metrics)
+    else:
+        writer.add_scalar("eval_GenAdv_loss", gen_mean_loss, global_step=gstep)
+        writer.add_scalar("eval_GenL1_loss", l1_mean_loss, global_step=gstep)
+        writer.add_scalar("eval_Disc_loss", disc_mean_loss, global_step=gstep)
+        writer.add_scalar("eval_GenFID_loss", fid_metric, global_step=gstep)
 
     return (
         gen_mean_loss,
@@ -167,16 +178,16 @@ def eval(
     )
 
 
-def write_hardware_specs(writer):
+def write_hardware_specs():
     machine_name = socket.gethostname()
     cpu_count = psutil.cpu_count(logical=True)
     memory = psutil.virtual_memory()
     memory_total = memory.total / (1024**3)
     memory_used = memory.used / (1024**3)
     memory_available = memory.available / (1024**3)
-    writer.add_text("Machine Info", f"Machine Name: {machine_name}")
-    writer.add_text("CPU Info", f"CPU Cores: {cpu_count}")
-    writer.add_text(
+    mlflow.log_param("Machine Info", f"Machine Name: {machine_name}")
+    mlflow.log_param("CPU Info", f"CPU Cores: {cpu_count}")
+    mlflow.log_param(
         "Memory Info",
         f"Total Memory: {memory_total:.2f} GB, Used Memory: {memory_used:.2f} GB, Available Memory: {memory_available:.2f} GB",
     )
@@ -184,7 +195,7 @@ def write_hardware_specs(writer):
     if torch.cuda.is_available():
         gpu_info = f"GPU: {torch.cuda.get_device_name(0)}, Memory Allocated: {torch.cuda.memory_allocated(0) / (1024 ** 3):.2f} GB\
             , Memory Cached: {torch.cuda.memory_reserved(0) / (1024 ** 3):.2f} GB"
-    writer.add_text("GPU Info", gpu_info)
+    mlflow.log_param("GPU Info", gpu_info)
 
 
 def train(
@@ -202,78 +213,111 @@ def train(
     img_save_step: int,
     saving_step: int,
     eval_step: int,
-    writer: SummaryWriter,
+    writer_log_dir: SummaryWriter,
+    mlflow_experiment: str,
 ):
     initial_time = time()
     gen_mean_loss = 0
     disc_mean_loss = 0
     cur_step = 0
-    write_hardware_specs(writer)
     saved_models = []
-    for epoch in range(epochs):
-        for real_img, target_img in tqdm(train_dataloader):
-            real_img = real_img.to(device)
-            target_img = target_img.to(device)
+    writer = SummaryWriter(writer_log_dir)
+    mlflow.set_tracking_uri(uri="http://0.0.0.0:8080")
+    mlflow.set_experiment(mlflow_experiment)
+    with mlflow.start_run(run_name=writer_log_dir):
+        mlflow.log_param("Tensorboard_run", writer_log_dir)
+        write_hardware_specs()
+        for epoch in range(epochs):
+            for real_img, target_img in tqdm(train_dataloader):
+                real_img = real_img.to(device)
+                target_img = target_img.to(device)
 
-            gen, disc, gen_opt, disc_opt, gen_mean_loss, disc_mean_loss = train_step(
-                real_img,
-                target_img,
-                gen,
-                disc,
-                gen_opt,
-                disc_opt,
-                g_loss,
-                d_loss,
-                disc_mean_loss,
-                gen_mean_loss,
-                cur_step,
-                writer,
-            )
-
-            if cur_step % img_save_step == 0:
-                idx = np.random.choice(len(real_img))
-                fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-                axes[0].imshow(real_img[idx].permute(1, 2, 0).detach().numpy())
-                axes[0].set_title("INPUT IMAGE")
-                axes[1].imshow(gen(real_img)[idx].permute(1, 2, 0).detach().numpy())
-                axes[1].set_title("GENERATED IMAGE")
-                axes[2].imshow(target_img[idx].permute(1, 2, 0).detach().numpy())
-                axes[2].set_title("TARGET IMAGE")
-
-                buf = BytesIO()
-                fig.savefig(buf, format="png")
-                buf.seek(0)
-                img = Image.open(buf)
-                transform = transforms.ToTensor()
-                img_tensor = transform(img)
-                writer.add_image(f"Generator output, step {cur_step}", img_tensor, 0)
-                plt.close(fig)
-
-            if cur_step % saving_step == 0:
-                if save_model:
-                    saved_models.append(f"../models/SpriteRotatorGAN_{cur_step}.pth")
-                    torch.save(
-                        {
-                            "gen": gen.state_dict(),
-                            "gen_opt": gen_opt.state_dict(),
-                            "disc": disc.state_dict(),
-                            "disc_opt": disc_opt.state_dict(),
-                        },
-                        f"../models/SpriteRotatorGAN_{cur_step}.pth",
+                gen, disc, gen_opt, disc_opt, gen_mean_loss, disc_mean_loss = (
+                    train_step(
+                        real_img,
+                        target_img,
+                        gen,
+                        disc,
+                        gen_opt,
+                        disc_opt,
+                        g_loss,
+                        d_loss,
+                        disc_mean_loss,
+                        gen_mean_loss,
+                        cur_step,
+                        writer,
                     )
-
-            if cur_step % eval_step == 0:
-                print("> Evaluating...")
-                eval(
-                    test_dataloader, gen, disc, g_loss, d_loss, device, writer, cur_step
                 )
-                print("> Resume training...")
 
-            cur_step += 1
-    writer.add_text(
-        "Training info",
-        f"Total training time: {str((time() - initial_time) / 60)} mins | Number of epochs: {epochs} | Total training steps: {cur_step} | Saved Models: {saved_models}",
-    )
+                if cur_step % img_save_step == 0:
+                    idx = np.random.choice(len(real_img))
+                    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+                    axes[0].imshow(real_img[idx].permute(1, 2, 0).detach().numpy())
+                    axes[0].set_title("INPUT IMAGE")
+                    axes[1].imshow(gen(real_img)[idx].permute(1, 2, 0).detach().numpy())
+                    axes[1].set_title("GENERATED IMAGE")
+                    axes[2].imshow(target_img[idx].permute(1, 2, 0).detach().numpy())
+                    axes[2].set_title("TARGET IMAGE")
+
+                    buf = BytesIO()
+                    fig.savefig(buf, format="png")
+                    buf.seek(0)
+                    img = Image.open(buf)
+                    transform = transforms.ToTensor()
+                    img_tensor = transform(img)
+                    writer.add_image(
+                        f"Generator output, step {cur_step}", img_tensor, 0
+                    )
+                    plt.close(fig)
+
+                if cur_step % saving_step == 0:
+                    if save_model:
+                        saved_models.append(
+                            f"../models/SpriteRotatorGAN_{cur_step}.pth"
+                        )
+                        torch.save(
+                            {
+                                "gen": gen.state_dict(),
+                                "gen_opt": gen_opt.state_dict(),
+                                "disc": disc.state_dict(),
+                                "disc_opt": disc_opt.state_dict(),
+                            },
+                            f"../models/SpriteRotatorGAN_{cur_step}.pth",
+                        )
+
+                if cur_step % eval_step == 0:
+                    print("> Evaluating...")
+                    eval(
+                        test_dataloader,
+                        gen,
+                        disc,
+                        g_loss,
+                        d_loss,
+                        device,
+                        writer,
+                        cur_step,
+                        to_mlflow=True,
+                    )
+                    print("> Resume training...")
+
+                cur_step += 1
+
+        print("> Final evaluation...")
+        eval(
+            test_dataloader,
+            gen,
+            disc,
+            g_loss,
+            d_loss,
+            device,
+            writer,
+            cur_step,
+        )
+
+        mlflow.log_param(
+            "Training info",
+            f"Total training time: {str((time() - initial_time) / 60)} mins | Number of epochs: {epochs} | Total training steps: {cur_step} | Saved Models: {saved_models}",
+        )
 
 
 def load_model(model_path, gen, disc):
