@@ -119,7 +119,7 @@ class Generator(nn.Module):
 
 
 class Discriminator(nn.Module):
-    def __init__(self, p, in_channels, kernel_size):
+    def __init__(self, in_channels, kernel_size):
         super().__init__()
         self.conv1 = EncoderBlock(
             in_channels * 2, 64, kernel_size, False, 2, 0, bias=False
@@ -127,10 +127,7 @@ class Discriminator(nn.Module):
         self.conv2 = nn.Sequential(
             nn.Conv2d(64, 1, kernel_size, 1, "same", bias=False), nn.Sigmoid()
         )
-        self.p = p
 
-    def forward(self, real_img, fake_img, condition):
-        selector = np.random.choice([True, False], p=[self.p, 1 - self.p])
-        self.x = real_img if selector else fake_img
-        self.x0 = self.conv1(torch.cat([self.x, condition], axis=1))
-        return self.conv2(self.x0)
+    def forward(self, x, condition):
+        x0 = self.conv1(torch.cat([x, condition], axis=1))
+        return self.conv2(x0)
