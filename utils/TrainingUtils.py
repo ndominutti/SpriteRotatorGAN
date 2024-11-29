@@ -170,6 +170,24 @@ def eval(
         writer.add_scalar("eval_Disc_loss", disc_mean_loss, global_step=gstep)
         writer.add_scalar("eval_GenFID_loss", fid_metric, global_step=gstep)
 
+    idx = np.random.choice(len(real_img))
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    axes[0].imshow(real_img[idx].permute(1, 2, 0).detach().numpy())
+    axes[0].set_title("INPUT IMAGE")
+    axes[1].imshow(gen(real_img)[idx].permute(1, 2, 0).detach().numpy())
+    axes[1].set_title("GENERATED IMAGE")
+    axes[2].imshow(target_img[idx].permute(1, 2, 0).detach().numpy())
+    axes[2].set_title("TARGET IMAGE")
+
+    buf = BytesIO()
+    fig.savefig(buf, format="png")
+    buf.seek(0)
+    img = Image.open(buf)
+    transform = transforms.ToTensor()
+    img_tensor = transform(img)
+    writer.add_image(f"EVAL | Generator output, step {gstep}", img_tensor, 0)
+    plt.close(fig)
+
     return (
         gen_mean_loss,
         disc_mean_loss,
@@ -230,13 +248,13 @@ def train(
     gen_mean_loss = 0
     disc_mean_loss = 0
     cur_step = 0
-    saved_models = []
     writer = SummaryWriter(writer_log_dir)
     setup_mlflow(mlflow_experiment, mlflow_tracking_uri)
     with mlflow.start_run(run_name=writer_log_dir.split("/")[-1]):
         mlflow.log_param("Tensorboard_run", writer_log_dir)
         write_hardware_specs()
         for epoch in range(epochs):
+            print("*" * 50 + f"EPOCH {epoch}" + "*" * 50)
             for real_img, target_img in tqdm(train_dataloader):
                 real_img = real_img.to(device)
                 target_img = target_img.to(device)
@@ -275,7 +293,7 @@ def train(
                     transform = transforms.ToTensor()
                     img_tensor = transform(img)
                     writer.add_image(
-                        f"Generator output, step {cur_step}", img_tensor, 0
+                        f"TRAIN | Generator output, step {cur_step}", img_tensor, 0
                     )
                     plt.close(fig)
 
@@ -290,7 +308,6 @@ def train(
                         device,
                         writer,
                         cur_step,
-                        to_mlflow=True,
                     )
                     print("> Resume training...")
 
