@@ -19,6 +19,7 @@ creds.json
 
 #Exclude traning logs
 train/tensorboard_logs
+train/mlflow_logs
 
 #Exclude mlflow logs
 mlflow_startup_utils/
