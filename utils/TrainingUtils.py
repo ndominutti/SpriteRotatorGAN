@@ -198,6 +198,17 @@ def write_hardware_specs():
     mlflow.log_param("GPU Info", gpu_info)
 
 
+def setup_mlflow(mlflow_experiment, tracking_uri):
+    with open("../creds.json", "r") as f:
+        creds = json.load(f)
+
+    mlflow.set_tracking_uri(tracking_uri)
+    os.environ["AWS_ACCESS_KEY_ID"] = creds["access_key_id"]
+    os.environ["AWS_SECRET_ACCESS_KEY"] = creds["secret_access_key"]
+    mlflow.environment_variables.MLFLOW_S3_ENDPOINT_URL = creds["bucket_uri"]
+    mlflow.set_experiment(mlflow_experiment)
+
+
 def train(
     train_dataloader,
     test_dataloader,
@@ -215,6 +226,7 @@ def train(
     eval_step: int,
     writer_log_dir: SummaryWriter,
     mlflow_experiment: str,
+    mlflow_tracking_uri="http://localhost:8080",
 ):
     initial_time = time()
     gen_mean_loss = 0
@@ -222,9 +234,8 @@ def train(
     cur_step = 0
     saved_models = []
     writer = SummaryWriter(writer_log_dir)
-    mlflow.set_tracking_uri(uri="http://0.0.0.0:8080")
-    mlflow.set_experiment(mlflow_experiment)
-    with mlflow.start_run(run_name=writer_log_dir):
+    setup_mlflow(mlflow_experiment, mlflow_tracking_uri)
+    with mlflow.start_run(run_name=writer_log_dir.split("/")[-1]):
         mlflow.log_param("Tensorboard_run", writer_log_dir)
         write_hardware_specs()
         for epoch in range(epochs):
@@ -270,20 +281,20 @@ def train(
                     )
                     plt.close(fig)
 
-                if cur_step % saving_step == 0:
-                    if save_model:
-                        saved_models.append(
-                            f"../models/SpriteRotatorGAN_{cur_step}.pth"
-                        )
-                        torch.save(
-                            {
-                                "gen": gen.state_dict(),
-                                "gen_opt": gen_opt.state_dict(),
-                                "disc": disc.state_dict(),
-                                "disc_opt": disc_opt.state_dict(),
-                            },
-                            f"../models/SpriteRotatorGAN_{cur_step}.pth",
-                        )
+                # if cur_step % saving_step == 0:
+                #     if save_model:
+                #         saved_models.append(
+                #             f"../models/SpriteRotatorGAN_{cur_step}.pth"
+                #         )
+                #         torch.save(
+                #             {
+                #                 "gen": gen.state_dict(),
+                #                 "gen_opt": gen_opt.state_dict(),
+                #                 "disc": disc.state_dict(),
+                #                 "disc_opt": disc_opt.state_dict(),
+                #             },
+                #             f"../models/SpriteRotatorGAN_{cur_step}.pth",
+                #         )
 
                 if cur_step % eval_step == 0:
                     print("> Evaluating...")
@@ -316,8 +327,17 @@ def train(
 
         mlflow.log_param(
             "Training info",
-            f"Total training time: {str((time() - initial_time) / 60)} mins | Number of epochs: {epochs} | Total training steps: {cur_step} | Saved Models: {saved_models}",
+            f"Total training time: {str((time() - initial_time) / 60)} mins | Number of epochs: {epochs} | Total training steps: {cur_step}",
         )
+
+        mlflow.pytorch.log_model(gen, "generator")
+        mlflow.pytorch.log_model(disc, "discriminator")
+        if not os.path.exists("mlflow_logs"):
+            os.makedirs("mlflow_logs")
+        torch.save(gen_opt.state_dict(), "mlflow_logs/gen_opt_weights.pth")
+        mlflow.log_artifact("mlflow_logs/gen_opt_weights.pth")
+        torch.save(disc_opt.state_dict(), "mlflow_logs/disc_opt_weights.pth")
+        mlflow.log_artifact("mlflow_logs/disc_opt_weights.pth")
 
 
 def load_model(model_path, gen, disc):
