@@ -22,7 +22,7 @@ train/tensorboard_logs
 train/mlflow_logs
 
 #Exclude mlflow logs
-mlflow_startup_utils/
+mlflow_startup_utils/mlruns
 
 #But keep the startup.sh file
 !mlflow_startup_utils/startup.sh
