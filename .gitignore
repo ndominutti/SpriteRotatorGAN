@@ -15,6 +15,7 @@ data/processed/*
 
 #Avoid uploading personal credentials file
 personal.md
+creds.json
 
 #Exclude traning logs
 train/tensorboard_logs
