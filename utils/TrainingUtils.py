@@ -281,21 +281,6 @@ def train(
                     )
                     plt.close(fig)
 
-                # if cur_step % saving_step == 0:
-                #     if save_model:
-                #         saved_models.append(
-                #             f"../models/SpriteRotatorGAN_{cur_step}.pth"
-                #         )
-                #         torch.save(
-                #             {
-                #                 "gen": gen.state_dict(),
-                #                 "gen_opt": gen_opt.state_dict(),
-                #                 "disc": disc.state_dict(),
-                #                 "disc_opt": disc_opt.state_dict(),
-                #             },
-                #             f"../models/SpriteRotatorGAN_{cur_step}.pth",
-                #         )
-
                 if cur_step % eval_step == 0:
                     print("> Evaluating...")
                     eval(
