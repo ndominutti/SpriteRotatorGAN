@@ -90,6 +90,7 @@ def train_step(
     gen_mean_loss,
     cur_step,
     writer,
+    g_loss_perc,
 ):
     disc_opt.zero_grad()
     disc_loss = d_loss(real_img, gen, disc, target_img)
@@ -97,7 +98,10 @@ def train_step(
     disc_opt.step()
 
     gen_opt.zero_grad()
-    gen_loss, _ = g_loss(real_img, gen, disc, target_img)
+    if g_loss_perc:
+        gen_loss, _, _ = g_loss(real_img, gen, disc, target_img)
+    else:
+        gen_loss, _ = g_loss(real_img, gen, disc, target_img)
     gen_loss.backward()
     gen_opt.step()
 
@@ -126,19 +130,27 @@ def eval(
     device,
     writer,
     gstep,
+    g_loss_perc,
     to_mlflow=False,
 ):
     gen_mean_loss = 0
     disc_mean_loss = 0
     cur_step = 0
     l1_mean_loss = 0
+    perc_mean_loss = 0
     fid = FrechetInceptionDistance(normalize=True)
     with torch.no_grad():
         for real_img, target_img in tqdm(dataloader):
             real_img = real_img.to(device)
             target_img = target_img.to(device)
             disc_loss = d_loss(real_img, gen, disc, target_img)
-            gen_loss, recon_loss = g_loss(real_img, gen, disc, target_img)
+            if g_loss_perc:
+                gen_loss, recon_loss, perc_loss = g_loss(
+                    real_img, gen, disc, target_img
+                )
+                perc_mean_loss += perc_loss.item()
+            else:
+                gen_loss, recon_loss = g_loss(real_img, gen, disc, target_img)
             disc_mean_loss += disc_loss.item()
             gen_mean_loss += gen_loss.item()
             l1_mean_loss += recon_loss.item()
@@ -154,6 +166,7 @@ def eval(
     gen_mean_loss = gen_mean_loss / (cur_step + 1)
     disc_mean_loss = disc_mean_loss / (cur_step + 1)
     l1_mean_loss = l1_mean_loss / (cur_step + 1)
+    perc_mean_loss = perc_mean_loss / (cur_step + 1)
     fid_metric = fid.compute().item()
 
     if to_mlflow:
@@ -162,6 +175,7 @@ def eval(
             "eval_GenL1_loss": l1_mean_loss,
             "eval_Disc_loss": disc_mean_loss,
             "eval_GenFID_loss": fid_metric,
+            "eval_Perc_loss": perc_mean_loss,
         }
         mlflow.log_metrics(metrics)
     else:
@@ -169,6 +183,7 @@ def eval(
         writer.add_scalar("eval_GenL1_loss", l1_mean_loss, global_step=gstep)
         writer.add_scalar("eval_Disc_loss", disc_mean_loss, global_step=gstep)
         writer.add_scalar("eval_GenFID_loss", fid_metric, global_step=gstep)
+        writer.add_scalar("eval_Perc_loss", perc_mean_loss, global_step=gstep)
 
     idx = np.random.choice(len(real_img))
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
@@ -188,12 +203,7 @@ def eval(
     writer.add_image(f"EVAL | Generator output, step {gstep}", img_tensor, 0)
     plt.close(fig)
 
-    return (
-        gen_mean_loss,
-        disc_mean_loss,
-        fid_metric,
-        l1_mean_loss,
-    )
+    return (gen_mean_loss, disc_mean_loss, fid_metric, l1_mean_loss, perc_mean_loss)
 
 
 def write_hardware_specs():
@@ -250,6 +260,10 @@ def train(
     cur_step = 0
     writer = SummaryWriter(writer_log_dir)
     setup_mlflow(mlflow_experiment, mlflow_tracking_uri)
+    if "perceptual_model" in str(g_loss.parameters.__get__(0)):
+        g_loss_perc = True
+    else:
+        g_loss_perc = False
     with mlflow.start_run(run_name=writer_log_dir.split("/")[-1]):
         mlflow.log_param("Tensorboard_run", writer_log_dir)
         write_hardware_specs()
@@ -273,6 +287,7 @@ def train(
                         gen_mean_loss,
                         cur_step,
                         writer,
+                        g_loss_perc,
                     )
                 )
 
@@ -308,6 +323,7 @@ def train(
                         device,
                         writer,
                         cur_step,
+                        g_loss_perc,
                     )
                     print("> Resume training...")
 
@@ -323,12 +339,15 @@ def train(
             device,
             writer,
             cur_step,
+            g_loss_perc,
         )
 
         mlflow.log_param(
             "Training info",
             f"Total training time: {str((time() - initial_time) / 60)} mins | Number of epochs: {epochs} | Total training steps: {cur_step}",
         )
+
+        mlflow.log_param("Added perceptual Loss", g_loss_perc)
 
         mlflow.pytorch.log_model(gen, "generator")
         mlflow.pytorch.log_model(disc, "discriminator")
