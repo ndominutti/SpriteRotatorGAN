@@ -138,6 +138,7 @@ def eval(
     cur_step = 0
     l1_mean_loss = 0
     perc_mean_loss = 0
+    adv_mean_loss = 0
     fid = FrechetInceptionDistance(normalize=True)
     with torch.no_grad():
         for real_img, target_img in tqdm(dataloader):
@@ -145,15 +146,16 @@ def eval(
             target_img = target_img.to(device)
             disc_loss = d_loss(real_img, gen, disc, target_img)
             if g_loss_perc:
-                gen_loss, recon_loss, perc_loss = g_loss(
+                gen_loss, adv_loss, recon_loss, perc_loss = g_loss(
                     real_img, gen, disc, target_img
                 )
                 perc_mean_loss += perc_loss.item()
             else:
-                gen_loss, recon_loss = g_loss(real_img, gen, disc, target_img)
+                gen_loss, adv_loss, recon_loss = g_loss(real_img, gen, disc, target_img)
             disc_mean_loss += disc_loss.item()
             gen_mean_loss += gen_loss.item()
             l1_mean_loss += recon_loss.item()
+            adv_mean_loss += adv_loss.item()
 
             fid.update(real_img[:, :3, :, :].to(torch.float64), real=True)
             fake_images = gen(real_img)
@@ -167,6 +169,7 @@ def eval(
     disc_mean_loss = disc_mean_loss / (cur_step + 1)
     l1_mean_loss = l1_mean_loss / (cur_step + 1)
     perc_mean_loss = perc_mean_loss / (cur_step + 1)
+    adv_mean_loss = adv_mean_loss / (cur_step + 1)
     fid_metric = fid.compute().item()
 
     if to_mlflow:
@@ -176,6 +179,7 @@ def eval(
             "eval_Disc_loss": disc_mean_loss,
             "eval_GenFID_loss": fid_metric,
             "eval_Perc_loss": perc_mean_loss,
+            "eval_Adv_loss": adv_mean_loss,
         }
         mlflow.log_metrics(metrics)
     else:
@@ -184,6 +188,7 @@ def eval(
         writer.add_scalar("eval_Disc_loss", disc_mean_loss, global_step=gstep)
         writer.add_scalar("eval_GenFID_loss", fid_metric, global_step=gstep)
         writer.add_scalar("eval_Perc_loss", perc_mean_loss, global_step=gstep)
+        writer.add_scalar("eval_Adv_loss", adv_mean_loss, global_step=gstep)
 
     idx = np.random.choice(len(real_img))
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
