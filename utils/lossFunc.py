@@ -17,13 +17,13 @@ class GenLoss(nn.Module):
         D_out = disc(G_out, input)
         # Adversarial loss: -E[log(D(G(x)))]
         adv_loss = self.bce_loss(D_out, torch.ones_like(D_out))
-
+        self.adv_loss = adv_loss
         # Reconstruction loss: L1(y, G(x))
         recon_loss = self.l1_loss(G_out, target_image)
 
         # Combined loss
         combined_loss = adv_loss + self.lambda_reg * recon_loss
-        return combined_loss, recon_loss
+        return combined_loss, adv_loss, recon_loss
 
 
 class GenLossWithPerceptual(GenLoss):
@@ -63,7 +63,28 @@ class GenLossWithPerceptual(GenLoss):
             generated_features = self.perceptual_model(G_out)
         perceptual_loss = self.l1_loss(generated_features, target_features)
         combined_loss += self.lambda_perc * perceptual_loss
-        return combined_loss, recon_loss, perceptual_loss
+        return combined_loss, super().adv_loss, recon_loss, perceptual_loss
+
+
+class GenLossWithSober(nn.Module):
+    def __init__(self, lambda_reg):
+        super().__init__()
+        self.bce_loss = nn.BCEWithLogitsLoss()
+        self.l1_loss = nn.L1Loss()
+        self.lambda_reg = lambda_reg
+
+    def forward(self, input, gen, disc, target_image):
+        G_out = gen(input)
+        D_out = disc(G_out, input)
+        # Adversarial loss: -E[log(D(G(x)))]
+        adv_loss = self.bce_loss(D_out, torch.ones_like(D_out))
+        self.adv_loss = adv_loss
+        # Reconstruction loss: L1(y, G(x))
+        recon_loss = self.l1_loss(G_out, target_image)
+
+        # Combined loss
+        combined_loss = adv_loss + self.lambda_reg * recon_loss
+        return combined_loss, adv_loss, recon_loss
 
 
 class DiscLoss(nn.Module):
